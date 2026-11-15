@@ -14,6 +14,8 @@ echo "Node.js $(node --version)"
 
 SYNC_TOKEN="$(node -e "try { process.stdout.write(String(require('$OPTIES').token || '')) } catch (e) {}")"
 export SYNC_TOKEN
+POSTBUS_TOKEN="$(node -e "try { process.stdout.write(String(require('$OPTIES').postbus_token || '')) } catch (e) {}")"
+export POSTBUS_TOKEN
 
 if [ -z "$SYNC_TOKEN" ]; then
     echo "Geen token ingesteld. Vul op het tabblad 'Configuratie' van deze add-on hetzelfde token in als in de app, en start de add-on opnieuw."

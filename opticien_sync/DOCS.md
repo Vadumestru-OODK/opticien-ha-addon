@@ -24,6 +24,13 @@ Hernoem of verplaats de mappen niet zelf; dat doet de add-on.
 
 - **Token**: hetzelfde token als in de app bij "Sync-server instellen".
   Gebruik een lang, willekeurig token (minstens 16 tekens).
+- **Postbus-token (PD-foto's)**: alleen nodig als je de foto van de PD-meting
+  op je telefoon bij de klantkaart wilt bewaren. Vul een ander lang, willekeurig
+  token in (minstens 16 tekens) en zet hetzelfde token in de PD-meting op je
+  telefoon. Met dit token kan de telefoon alleen een foto in de postbus leggen;
+  lezen kan hij niets. De klantkaart haalt de foto op en gooit hem daarna weg.
+  Niet opgehaalde foto's worden na 24 uur gewist. De postbus staat in
+  `share\opticien\postbus`.
 
 ## Beveiliging
 

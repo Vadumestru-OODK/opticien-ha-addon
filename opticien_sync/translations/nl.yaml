@@ -2,5 +2,8 @@ configuration:
   token:
     name: Token
     description: Hetzelfde token als in de app bij "Sync-server instellen". Gebruik een lang, willekeurig token.
+  postbus_token:
+    name: Postbus-token (PD-foto's)
+    description: Apart token voor de PD-meting op je telefoon. Daarmee kan de telefoon alleen een foto in de postbus leggen, niets lezen. Minstens 16 tekens, anders dan het gewone token. Leeg laten = postbus uit.
 network:
   8091/tcp: Sync-server voor de app

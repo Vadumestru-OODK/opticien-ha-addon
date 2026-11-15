@@ -53,6 +53,14 @@ const MAX_DB_BACKUPS = 30;          // dagelijkse databasekopieën
 const MAX_VERSIES_PER_KAART = 30;   // versiegeschiedenis per klantkaart
 const MAX_JSON_BYTES = 20 * 1024 * 1024;
 const MAX_MEDIA_BYTES = 15 * 1024 * 1024;
+// Postbus: de telefoon (PD-meting) mag hier met een eigen, beperkt token alleen een foto in leggen.
+// Ophalen en weggooien kan alleen met het gewone token. Niet opgehaald: na 24 uur weg.
+const POSTBUS_TOKEN = (process.env.POSTBUS_TOKEN || '').trim();
+const POSTBUS_AAN = POSTBUS_TOKEN.length >= 16 && POSTBUS_TOKEN !== TOKEN;
+const POSTBUS_DIR = path.join(DATA_DIR_BASE, 'postbus');
+const POSTBUS_MAX_BYTES = 5 * 1024 * 1024;
+const POSTBUS_MAX_AANTAL = 50;
+const POSTBUS_BEWAARTIJD = 24 * 60 * 60 * 1000;
 
 // --- Database ---
 
@@ -570,7 +578,7 @@ function maakBackupVanHuidigeData() {
 const CORS = {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Headers': 'Authorization, Content-Type',
-    'Access-Control-Allow-Methods': 'GET, POST, PUT, OPTIONS'
+    'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS'
 };
 
 function send(res, status, bodyObj) {
@@ -634,6 +642,24 @@ function checkAuth(req) {
     return auth.length === verwacht.length && crypto.timingSafeEqual(auth, verwacht);
 }
 
+function tokenGelijk(req, token) {
+    const auth = Buffer.from(req.headers['authorization'] || '');
+    const verwacht = Buffer.from(`Bearer ${token}`);
+    return auth.length === verwacht.length && crypto.timingSafeEqual(auth, verwacht);
+}
+
+function ruimPostbusOp() {
+    try {
+        if (!fs.existsSync(POSTBUS_DIR)) return;
+        const nu = Date.now();
+        for (const f of fs.readdirSync(POSTBUS_DIR)) {
+            const pad = path.join(POSTBUS_DIR, f);
+            if (nu - fs.statSync(pad).mtimeMs > POSTBUS_BEWAARTIJD) fs.unlinkSync(pad);
+        }
+    } catch (e) { console.error('Postbus opruimen mislukt:', e.message); }
+}
+setInterval(ruimPostbusOp, 60 * 60 * 1000).unref();
+
 function leesBody(req, max) {
     return new Promise((resolve, reject) => {
         const delen = [];
@@ -658,6 +684,29 @@ const server = http.createServer(async (req, res) => {
         send(res, 429, { error: `Te veel foute pogingen. Probeer het over ${minuten} minuten opnieuw.` });
         return;
     }
+    // Foto in de postbus leggen: met het postbus-token (of het gewone token)
+    if (req.method === 'POST' && req.url.split('?')[0] === '/postbus') {
+        if (!POSTBUS_AAN && !checkAuth(req)) { registreerFout(adres); send(res, 401, { error: 'Unauthorized: postbus staat uit of token klopt niet' }); return; }
+        if (!checkAuth(req) && !tokenGelijk(req, POSTBUS_TOKEN)) { registreerFout(adres); send(res, 401, { error: 'Unauthorized: token klopt niet' }); return; }
+        pogingen.delete(adres);
+        try {
+            const type = String(req.headers['content-type'] || '').split(';')[0].trim();
+            if (type !== 'image/jpeg') { send(res, 415, { error: 'Alleen JPEG-foto\'s' }); return; }
+            fs.mkdirSync(POSTBUS_DIR, { recursive: true });
+            ruimPostbusOp();
+            if (fs.readdirSync(POSTBUS_DIR).length >= POSTBUS_MAX_AANTAL) { send(res, 507, { error: 'Postbus is vol' }); return; }
+            const inhoud = await leesBody(req, POSTBUS_MAX_BYTES);
+            if (inhoud.length < 4 || inhoud[0] !== 0xFF || inhoud[1] !== 0xD8) { send(res, 400, { error: 'Geen JPEG-foto' }); return; }
+            const id = crypto.randomBytes(16).toString('hex');
+            fs.writeFileSync(path.join(POSTBUS_DIR, id + '.jpg'), inhoud);
+            console.log(`${new Date().toLocaleString('nl-NL')}: foto in de postbus (${Math.round(inhoud.length / 1024)} kB)`);
+            send(res, 200, { ok: true, id });
+        } catch (e) {
+            if (e.message === 'te groot') { send(res, 413, { error: 'Foto te groot' }); return; }
+            send(res, 500, { error: 'Serverfout: ' + e.message });
+        }
+        return;
+    }
     if (!checkAuth(req)) {
         registreerFout(adres);
         send(res, 401, { error: 'Unauthorized: token klopt niet' });
@@ -671,7 +720,19 @@ const server = http.createServer(async (req, res) => {
     try {
         // Status: om te testen of de server bereikbaar is
         if (req.method === 'GET' && p === '/status') {
-            send(res, 200, { ok: true, versie: 2, ...q.tellingen.get(), seq: q.maxSeq.get().s });
+            send(res, 200, { ok: true, versie: 2, postbus: POSTBUS_AAN, ...q.tellingen.get(), seq: q.maxSeq.get().s });
+            return;
+        }
+
+        // Postbus: foto ophalen of weggooien (alleen met het gewone token)
+        const pbMatch = p.match(/^\/postbus\/([a-f0-9]{32})$/);
+        if (pbMatch && (req.method === 'GET' || req.method === 'DELETE')) {
+            const pad = path.join(POSTBUS_DIR, pbMatch[1] + '.jpg');
+            if (!fs.existsSync(pad)) { send(res, 404, { error: 'Foto niet (meer) in de postbus' }); return; }
+            if (req.method === 'DELETE') { fs.unlinkSync(pad); send(res, 200, { ok: true }); return; }
+            const inhoud = fs.readFileSync(pad);
+            res.writeHead(200, { ...CORS, 'Content-Type': 'image/jpeg', 'Content-Length': inhoud.length });
+            res.end(inhoud);
             return;
         }
 
@@ -819,6 +880,8 @@ server.listen(PORT, '0.0.0.0', () => {
     const t = q.tellingen.get();
     console.log(`Sync-server v2 draait op poort ${PORT}`);
     console.log(`Database: ${DB_FILE} (${t.kaarten} klantkaarten, ${t.media} foto's/PDF's)`);
+    if (POSTBUS_AAN) console.log('Postbus voor foto\'s van de PD-meting staat aan.');
+    else if (POSTBUS_TOKEN) console.warn('Postbus staat uit: het postbus-token moet minstens 16 tekens zijn en mag niet gelijk zijn aan het gewone token.');
     if (TOKEN === 'VERANDER_DIT_TOKEN') {
         console.warn('⚠️  Let op: je gebruikt nog het standaard-token! Zet bij TOKEN hetzelfde token als in je oude server.');
     }

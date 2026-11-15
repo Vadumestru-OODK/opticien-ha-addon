@@ -2,5 +2,8 @@ configuration:
   token:
     name: Token
     description: The same token as in the app under "Sync-server instellen".
+  postbus_token:
+    name: Mailbox token (PD photos)
+    description: Separate token for the PD measurement on your phone. It can only drop a photo in the mailbox, not read anything. At least 16 characters, different from the main token. Empty = mailbox off.
 network:
   8091/tcp: Sync server for the app
