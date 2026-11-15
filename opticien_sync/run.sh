@@ -16,6 +16,10 @@ SYNC_TOKEN="$(node -e "try { process.stdout.write(String(require('$OPTIES').toke
 export SYNC_TOKEN
 POSTBUS_TOKEN="$(node -e "try { process.stdout.write(String(require('$OPTIES').postbus_token || '')) } catch (e) {}")"
 export POSTBUS_TOKEN
+MISTRAL_KEY="$(node -e "try { process.stdout.write(String(require('$OPTIES').mistral_key || '')) } catch (e) {}")"
+export MISTRAL_KEY
+MISTRAL_MODEL="$(node -e "try { process.stdout.write(String(require('$OPTIES').mistral_model || '')) } catch (e) {}")"
+export MISTRAL_MODEL
 
 if [ -z "$SYNC_TOKEN" ]; then
     echo "Geen token ingesteld. Vul op het tabblad 'Configuratie' van deze add-on hetzelfde token in als in de app, en start de add-on opnieuw."

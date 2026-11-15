@@ -61,6 +61,11 @@ const POSTBUS_DIR = path.join(DATA_DIR_BASE, 'postbus');
 const POSTBUS_MAX_BYTES = 5 * 1024 * 1024;
 const POSTBUS_MAX_AANTAL = 50;
 const POSTBUS_BEWAARTIJD = 24 * 60 * 60 * 1000;
+// Mistral: de klantkaart laat hier een verslag uitwerken. De sleutel blijft op de server.
+const MISTRAL_KEY = (process.env.MISTRAL_KEY || '').trim();
+const MISTRAL_MODEL = (process.env.MISTRAL_MODEL || '').trim() || 'mistral-large-latest';
+const MISTRAL_URL = process.env.MISTRAL_URL || 'https://api.mistral.ai/v1/chat/completions';
+const AI_MAX_TEKENS = 30000;
 
 // --- Database ---
 
@@ -720,7 +725,41 @@ const server = http.createServer(async (req, res) => {
     try {
         // Status: om te testen of de server bereikbaar is
         if (req.method === 'GET' && p === '/status') {
-            send(res, 200, { ok: true, versie: 2, postbus: POSTBUS_AAN, ...q.tellingen.get(), seq: q.maxSeq.get().s });
+            send(res, 200, { ok: true, versie: 2, postbus: POSTBUS_AAN, ai: !!MISTRAL_KEY, ...q.tellingen.get(), seq: q.maxSeq.get().s });
+            return;
+        }
+
+        // Verslag laten uitwerken door Mistral (alleen met het gewone token)
+        if (p === '/ai' && req.method === 'POST') {
+            if (!MISTRAL_KEY) { send(res, 503, { error: 'Er is geen Mistral-sleutel ingesteld in de add-on' }); return; }
+            let vraag;
+            try { vraag = JSON.parse((await leesBody(req, 200 * 1024)).toString('utf8')); }
+            catch (e) { send(res, 400, { error: 'Ongeldig verzoek' }); return; }
+            const berichten = Array.isArray(vraag.berichten) ? vraag.berichten : [];
+            const goed = berichten.length >= 1 && berichten.length <= 4 && berichten.every(b => b && ['system', 'user'].includes(b.rol) && typeof b.tekst === 'string');
+            const lengte = berichten.reduce((n, b) => n + (b && typeof b.tekst === 'string' ? b.tekst.length : 0), 0);
+            if (!goed || lengte > AI_MAX_TEKENS) { send(res, 400, { error: 'Ongeldig of te lang verzoek' }); return; }
+            try {
+                const ctrl = new AbortController();
+                const t = setTimeout(() => ctrl.abort(), 90000);
+                const r = await fetch(MISTRAL_URL, {
+                    method: 'POST', signal: ctrl.signal,
+                    headers: { 'Authorization': 'Bearer ' + MISTRAL_KEY, 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                    body: JSON.stringify({ model: MISTRAL_MODEL, temperature: 0.2, max_tokens: 2000,
+                        messages: berichten.map(b => ({ role: b.rol, content: b.tekst })) })
+                }).finally(() => clearTimeout(t));
+                const j = await r.json().catch(() => ({}));
+                if (!r.ok) {
+                    const reden = r.status === 401 ? 'Mistral-sleutel klopt niet' : r.status === 429 ? 'Mistral: te veel verzoeken of tegoed op' : 'Mistral gaf fout ' + r.status;
+                    console.warn(`${new Date().toLocaleString('nl-NL')}: Mistral-fout ${r.status}`);
+                    send(res, 502, { error: reden }); return;
+                }
+                const tekst = j.choices && j.choices[0] && j.choices[0].message ? String(j.choices[0].message.content || '') : '';
+                console.log(`${new Date().toLocaleString('nl-NL')}: verslag uitgewerkt door Mistral (${MISTRAL_MODEL})`);
+                send(res, 200, { ok: true, tekst, model: j.model || MISTRAL_MODEL });
+            } catch (e) {
+                send(res, 504, { error: e.name === 'AbortError' ? 'Mistral reageert niet' : 'Mistral niet bereikbaar' });
+            }
             return;
         }
 
@@ -881,6 +920,7 @@ server.listen(PORT, '0.0.0.0', () => {
     console.log(`Sync-server v2 draait op poort ${PORT}`);
     console.log(`Database: ${DB_FILE} (${t.kaarten} klantkaarten, ${t.media} foto's/PDF's)`);
     if (POSTBUS_AAN) console.log('Postbus voor foto\'s van de PD-meting staat aan.');
+    if (MISTRAL_KEY) console.log(`Uitwerken met Mistral staat aan (${MISTRAL_MODEL}).`);
     else if (POSTBUS_TOKEN) console.warn('Postbus staat uit: het postbus-token moet minstens 16 tekens zijn en mag niet gelijk zijn aan het gewone token.');
     if (TOKEN === 'VERANDER_DIT_TOKEN') {
         console.warn('⚠️  Let op: je gebruikt nog het standaard-token! Zet bij TOKEN hetzelfde token als in je oude server.');

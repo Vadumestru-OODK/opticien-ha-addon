@@ -5,5 +5,11 @@ configuration:
   postbus_token:
     name: Postbus-token (PD-foto's)
     description: Apart token voor de PD-meting op je telefoon. Daarmee kan de telefoon alleen een foto in de postbus leggen, niets lezen. Minstens 16 tekens, anders dan het gewone token. Leeg laten = postbus uit.
+  mistral_key:
+    name: Mistral API-sleutel
+    description: Voor "Uitwerken met Mistral" op de klantkaart. Maak de sleutel aan op console.mistral.ai (betaald account, training uitgezet). Leeg laten = uit.
+  mistral_model:
+    name: Mistral-model
+    description: Standaard mistral-large-latest. Wil je het sneller en goedkoper, vul dan bijvoorbeeld mistral-small-latest in.
 network:
   8091/tcp: Sync-server voor de app

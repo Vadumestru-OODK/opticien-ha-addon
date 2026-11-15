@@ -1,5 +1,5 @@
 name: Opticien Sync
-version: "2.8.0"
+version: "2.9.0"
 slug: opticien_sync
 description: Database voor de klantkaarten-app van Opticien op de Koffie
 url: https://form.oodk.nl
@@ -19,6 +19,10 @@ map:
 options:
   token: ""
   postbus_token: ""
+  mistral_key: ""
+  mistral_model: "mistral-large-latest"
 schema:
   token: password
   postbus_token: password?
+  mistral_key: password?
+  mistral_model: str?

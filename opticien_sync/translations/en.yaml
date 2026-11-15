@@ -5,5 +5,11 @@ configuration:
   postbus_token:
     name: Mailbox token (PD photos)
     description: Separate token for the PD measurement on your phone. It can only drop a photo in the mailbox, not read anything. At least 16 characters, different from the main token. Empty = mailbox off.
+  mistral_key:
+    name: Mistral API key
+    description: For "Uitwerken met Mistral" on the customer card. Create it at console.mistral.ai (paid account, training turned off). Empty = off.
+  mistral_model:
+    name: Mistral model
+    description: Default mistral-large-latest.
 network:
   8091/tcp: Sync server for the app

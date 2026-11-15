@@ -31,6 +31,11 @@ Hernoem of verplaats de mappen niet zelf; dat doet de add-on.
   lezen kan hij niets. De klantkaart haalt de foto op en gooit hem daarna weg.
   Niet opgehaalde foto's worden na 24 uur gewist. De postbus staat in
   `share\opticien\postbus`.
+- **Mistral API-sleutel** en **Mistral-model**: alleen nodig voor de knop
+  "Uitwerken met Mistral" op de klantkaart (brief aan de arts en verslag voor
+  het dossier). De sleutel blijft op deze server; de klantkaart stuurt geen
+  naam, adres, telefoon of geboortedatum mee. Gebruik een betaald account bij
+  Mistral, zet het gebruik voor training uit en sluit hun verwerkersovereenkomst.
 
 ## Beveiliging
 
