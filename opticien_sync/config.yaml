@@ -1,0 +1,22 @@
+name: Opticien Sync
+version: "2.7.0"
+slug: opticien_sync
+description: Database voor de klantkaarten-app van Opticien op de Koffie
+url: https://form.oodk.nl
+arch:
+  - aarch64
+  - amd64
+init: false
+startup: application
+boot: auto
+ports:
+  8091/tcp: 8091
+ports_description:
+  8091/tcp: Sync-server voor de app (via Nginx Proxy Manager naar buiten)
+map:
+  - type: share
+    read_only: false
+options:
+  token: ""
+schema:
+  token: password

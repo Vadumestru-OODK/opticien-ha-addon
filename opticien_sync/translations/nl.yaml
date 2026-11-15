@@ -1,0 +1,6 @@
+configuration:
+  token:
+    name: Token
+    description: Hetzelfde token als in de app bij "Sync-server instellen". Gebruik een lang, willekeurig token.
+network:
+  8091/tcp: Sync-server voor de app

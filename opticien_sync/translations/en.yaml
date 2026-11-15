@@ -1,0 +1,6 @@
+configuration:
+  token:
+    name: Token
+    description: The same token as in the app under "Sync-server instellen".
+network:
+  8091/tcp: Sync server for the app
