@@ -693,7 +693,8 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && req.url.split('?')[0] === '/postbus') {
         if (!POSTBUS_AAN && !checkAuth(req)) { registreerFout(adres); send(res, 401, { error: 'Unauthorized: postbus staat uit of token klopt niet' }); return; }
         if (!checkAuth(req) && !tokenGelijk(req, POSTBUS_TOKEN)) { registreerFout(adres); send(res, 401, { error: 'Unauthorized: token klopt niet' }); return; }
-        pogingen.delete(adres);
+        // Alleen het gewone token zet de teller van foute pogingen terug; het beperkte postbus-token niet
+        if (checkAuth(req)) pogingen.delete(adres);
         try {
             const type = String(req.headers['content-type'] || '').split(';')[0].trim();
             if (type !== 'image/jpeg') { send(res, 415, { error: 'Alleen JPEG-foto\'s' }); return; }
@@ -920,8 +921,8 @@ server.listen(PORT, '0.0.0.0', () => {
     console.log(`Sync-server v2 draait op poort ${PORT}`);
     console.log(`Database: ${DB_FILE} (${t.kaarten} klantkaarten, ${t.media} foto's/PDF's)`);
     if (POSTBUS_AAN) console.log('Postbus voor foto\'s van de PD-meting staat aan.');
-    if (MISTRAL_KEY) console.log(`Uitwerken met Mistral staat aan (${MISTRAL_MODEL}).`);
     else if (POSTBUS_TOKEN) console.warn('Postbus staat uit: het postbus-token moet minstens 16 tekens zijn en mag niet gelijk zijn aan het gewone token.');
+    if (MISTRAL_KEY) console.log(`Uitwerken met Mistral staat aan (${MISTRAL_MODEL}).`);
     if (TOKEN === 'VERANDER_DIT_TOKEN') {
         console.warn('⚠️  Let op: je gebruikt nog het standaard-token! Zet bij TOKEN hetzelfde token als in je oude server.');
     }
