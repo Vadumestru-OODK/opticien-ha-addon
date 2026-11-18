@@ -61,6 +61,8 @@ const POSTBUS_DIR = path.join(DATA_DIR_BASE, 'postbus');
 const POSTBUS_MAX_BYTES = 5 * 1024 * 1024;
 const POSTBUS_MAX_AANTAL = 50;
 const POSTBUS_BEWAARTIJD = 24 * 60 * 60 * 1000;
+// Gewone foto's van de telefoon krijgen een soort mee (?soort=...); die worden in een klein .json-bestand ernaast bewaard
+const POSTBUS_SOORTEN = ['montuur', 'oog', 'recept', 'overig'];
 // Mistral: de klantkaart laat hier een verslag uitwerken. De sleutel blijft op de server.
 const MISTRAL_KEY = (process.env.MISTRAL_KEY || '').trim();
 const MISTRAL_MODEL = (process.env.MISTRAL_MODEL || '').trim() || 'mistral-large-latest';
@@ -700,11 +702,13 @@ const server = http.createServer(async (req, res) => {
             if (type !== 'image/jpeg') { send(res, 415, { error: 'Alleen JPEG-foto\'s' }); return; }
             fs.mkdirSync(POSTBUS_DIR, { recursive: true });
             ruimPostbusOp();
-            if (fs.readdirSync(POSTBUS_DIR).length >= POSTBUS_MAX_AANTAL) { send(res, 507, { error: 'Postbus is vol' }); return; }
+            if (fs.readdirSync(POSTBUS_DIR).filter(f => f.endsWith('.jpg')).length >= POSTBUS_MAX_AANTAL) { send(res, 507, { error: 'Postbus is vol' }); return; }
             const inhoud = await leesBody(req, POSTBUS_MAX_BYTES);
             if (inhoud.length < 4 || inhoud[0] !== 0xFF || inhoud[1] !== 0xD8) { send(res, 400, { error: 'Geen JPEG-foto' }); return; }
             const id = crypto.randomBytes(16).toString('hex');
             fs.writeFileSync(path.join(POSTBUS_DIR, id + '.jpg'), inhoud);
+            const soort = new URL(req.url, 'http://x').searchParams.get('soort');
+            if (POSTBUS_SOORTEN.includes(soort)) fs.writeFileSync(path.join(POSTBUS_DIR, id + '.json'), JSON.stringify({ soort, tijd: Date.now() }));
             console.log(`${new Date().toLocaleString('nl-NL')}: foto in de postbus (${Math.round(inhoud.length / 1024)} kB)`);
             send(res, 200, { ok: true, id });
         } catch (e) {
@@ -764,12 +768,27 @@ const server = http.createServer(async (req, res) => {
             return;
         }
 
+        // Postbus: lijst van gewone foto's die nog niet bij een klant zijn gezet (alleen met het gewone token)
+        if (req.method === 'GET' && p === '/postbus') {
+            const lijst = [];
+            try {
+                if (fs.existsSync(POSTBUS_DIR)) for (const f of fs.readdirSync(POSTBUS_DIR)) {
+                    const m = f.match(/^([a-f0-9]{32})\.json$/);
+                    if (!m || !fs.existsSync(path.join(POSTBUS_DIR, m[1] + '.jpg'))) continue;
+                    try { const j = JSON.parse(fs.readFileSync(path.join(POSTBUS_DIR, f), 'utf8')); if (POSTBUS_SOORTEN.includes(j.soort)) lijst.push({ id: m[1], soort: j.soort, tijd: j.tijd || 0 }); } catch (e) {}
+                }
+            } catch (e) {}
+            lijst.sort((a, b) => a.tijd - b.tijd);
+            send(res, 200, { fotos: lijst });
+            return;
+        }
+
         // Postbus: foto ophalen of weggooien (alleen met het gewone token)
         const pbMatch = p.match(/^\/postbus\/([a-f0-9]{32})$/);
         if (pbMatch && (req.method === 'GET' || req.method === 'DELETE')) {
             const pad = path.join(POSTBUS_DIR, pbMatch[1] + '.jpg');
             if (!fs.existsSync(pad)) { send(res, 404, { error: 'Foto niet (meer) in de postbus' }); return; }
-            if (req.method === 'DELETE') { fs.unlinkSync(pad); send(res, 200, { ok: true }); return; }
+            if (req.method === 'DELETE') { fs.unlinkSync(pad); try { fs.unlinkSync(path.join(POSTBUS_DIR, pbMatch[1] + '.json')); } catch (e) {} send(res, 200, { ok: true }); return; }
             const inhoud = fs.readFileSync(pad);
             res.writeHead(200, { ...CORS, 'Content-Type': 'image/jpeg', 'Content-Length': inhoud.length });
             res.end(inhoud);
