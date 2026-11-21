@@ -5,6 +5,9 @@ configuration:
   postbus_token:
     name: Postbus-token (PD-foto's)
     description: Apart token voor de PD-meting op je telefoon. Daarmee kan de telefoon alleen een foto in de postbus leggen, niets lezen. Minstens 16 tekens, anders dan het gewone token. Leeg laten = postbus uit.
+  widget_token:
+    name: Widget-token (bureaubladwidget)
+    description: Apart token voor het bureaubladwidget op je pc. Daarmee kun je alleen het overzicht van vandaag, morgen en "nog in OS Optiek" zien, niets wijzigen. Minstens 16 tekens, anders dan je andere tokens. Leeg laten = widget uit.
   mistral_key:
     name: Mistral API-sleutel
     description: Voor "Uitwerken met Mistral" op de klantkaart. Maak de sleutel aan op console.mistral.ai (betaald account, training uitgezet). Leeg laten = uit.

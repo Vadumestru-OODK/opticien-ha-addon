@@ -5,6 +5,9 @@ configuration:
   postbus_token:
     name: Mailbox token (PD photos)
     description: Separate token for the PD measurement on your phone. It can only drop a photo in the mailbox, not read anything. At least 16 characters, different from the main token. Empty = mailbox off.
+  widget_token:
+    name: Widget token (desktop widget)
+    description: Separate token for the desktop widget. Read-only overview of today, tomorrow and "nog in OS Optiek". At least 16 characters, different from your other tokens. Empty = widget off.
   mistral_key:
     name: Mistral API key
     description: For "Uitwerken met Mistral" on the customer card. Create it at console.mistral.ai (paid account, training turned off). Empty = off.

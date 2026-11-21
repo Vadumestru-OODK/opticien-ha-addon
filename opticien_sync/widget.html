@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Klantkaarten</title>
+<style>
+/* Bureaubladwidget van de klantkaarten-app. Wordt door de sync-server geleverd op /widget.
+   In het Windows-widget (Electron) is het venster doorzichtig; in een gewone browser krijgt de pagina een achtergrond. */
+:root { --rand: rgba(255,255,255,.08); --tekst: #e8eaed; --zacht: #8b929b; --blauw: #6ea8ff; --groen: #6fd39b; --oranje: #f0b562; }
+html, body { margin: 0; height: 100%; background: #0f1115; color: var(--tekst); font: 14px system-ui, "Segoe UI", sans-serif; }
+body.widget { background: transparent; }
+.paneel { height: 100%; box-sizing: border-box; display: flex; flex-direction: column; background: rgba(20,22,26,.93);
+  border: 1px solid var(--rand); border-radius: 14px; overflow: hidden; }
+body:not(.widget) .paneel { max-width: 420px; margin: 0 auto; border-radius: 0; }
+.kop { display: flex; align-items: center; gap: 8px; padding: 10px 12px 8px; -webkit-app-region: drag; user-select: none; border-bottom: 1px solid var(--rand); }
+.kop .titel { flex: 1; min-width: 0; }
+.kop b { display: block; font-size: 15px; }
+.kop small { color: var(--zacht); font-size: 12px; }
+.stip { width: 9px; height: 9px; border-radius: 50%; background: #555; flex: none; }
+.stip.aan { background: var(--groen); } .stip.weg { background: var(--oranje); }
+.knop { -webkit-app-region: no-drag; background: none; border: 0; color: var(--zacht); font-size: 16px; cursor: pointer; padding: 2px 6px; border-radius: 6px; }
+.knop:hover { background: rgba(255,255,255,.08); color: var(--tekst); }
+body:not(.widget) .alleen-widget { display: none; }
+.inhoud { flex: 1; overflow-y: auto; padding: 6px 10px 12px; }
+.sectie { margin-top: 10px; }
+.sectie-kop { display: flex; justify-content: space-between; font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--zacht); margin: 0 2px 5px; cursor: default; }
+button.sectie-kop { width: 100%; background: none; border: 0; padding: 0; font: inherit; font-size: 11px; cursor: pointer; }
+.item { display: flex; gap: 10px; align-items: baseline; padding: 7px 8px; border-radius: 9px; cursor: pointer; }
+.item:hover { background: rgba(255,255,255,.06); }
+.tijd { flex: none; width: 52px; white-space: nowrap; font-weight: 700; color: var(--blauw); font-variant-numeric: tabular-nums; }
+.wie { flex: 1; min-width: 0; }
+.wie b { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wie small { color: var(--zacht); }
+.item.klaar { opacity: .5; } .item.klaar .tijd { color: var(--groen); }
+.os .tijd { color: var(--oranje); font-size: 12px; width: 48px; }
+.leeg { color: var(--zacht); padding: 4px 8px 6px; }
+.voet { padding: 6px 12px; font-size: 11px; color: var(--zacht); border-top: 1px solid var(--rand); }
+form { padding: 16px; }
+form p { color: var(--zacht); margin: 0 0 12px; line-height: 1.45; }
+input, .groot { width: 100%; box-sizing: border-box; padding: 10px; border-radius: 9px; font: inherit; -webkit-app-region: no-drag; }
+input { background: #14161a; border: 1px solid #2a2e36; color: var(--tekst); margin-bottom: 10px; }
+.groot { background: #2d6cdf; border: 0; color: #fff; font-weight: 700; cursor: pointer; }
+.fout { color: #ff8a7a; margin-top: 8px; min-height: 18px; }
+</style>
+</head>
+<body>
+<div class="paneel">
+  <div class="kop">
+    <span class="stip" id="stip" title="Verbinding"></span>
+    <div class="titel"><b>Klantkaarten</b><small id="datumRegel"></small></div>
+    <button class="knop" id="ververs" title="Vernieuwen">⟳</button>
+    <button class="knop" id="uitlog" title="Ander token invullen">⚙</button>
+    <button class="knop alleen-widget" id="verberg" title="Verbergen (terughalen via het pictogram rechtsonder bij de klok)">–</button>
+  </div>
+  <div class="inhoud" id="inhoud"></div>
+  <div class="voet" id="voet"></div>
+</div>
+<script>
+'use strict';
+// In het Windows-widget is window.widget beschikbaar (zie preload.js)
+if (window.widget || new URLSearchParams(location.search).has('widget')) document.body.classList.add('widget');
+
+var SLEUTEL = 'widgetToken';
+var data = null, osOpen = false, stroom = null, wachttijd = 2000, laatsteDag = '';
+
+function basis() { return location.pathname.replace(/\/?$/, '/'); }   // '/widget/'
+function token() { try { return localStorage.getItem(SLEUTEL) || ''; } catch (e) { return ''; } }
+function zetToken(t) { try { if (t) localStorage.setItem(SLEUTEL, t); else localStorage.removeItem(SLEUTEL); } catch (e) {} }
+function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+function vandaagIso() { var d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
+function mooieDatum(iso, lang) { var d = new Date(iso + 'T12:00:00'); return d.toLocaleDateString('nl-NL', lang ? { weekday: 'long', day: 'numeric', month: 'long' } : { day: 'numeric', month: 'short' }); }
+function stip(s) { var el = document.getElementById('stip'); el.className = 'stip ' + s; el.title = s === 'aan' ? 'Live verbonden' : 'Geen live verbinding, opnieuw proberen'; }
+
+function toonInloggen(melding) {
+  document.getElementById('inhoud').innerHTML =
+    '<form id="f"><p>Vul het <b>widget-token</b> in. Dat staat in Home Assistant bij de add-on Opticien Sync, tabblad Configuratie.</p>' +
+    '<input id="t" type="password" placeholder="Widget-token" autocomplete="off" autofocus>' +
+    '<button class="groot">Opslaan</button><div class="fout" id="fout">' + esc(melding || '') + '</div></form>';
+  document.getElementById('voet').textContent = '';
+  document.getElementById('f').onsubmit = function (e) {
+    e.preventDefault();
+    var t = document.getElementById('t').value.trim();
+    if (!t) return;
+    zetToken(t); laad(); verbind();
+  };
+}
+
+function itemHtml(a, os) {
+  var links = os ? mooieDatum(a.datum) : (a.tijd || '–:–');
+  var onder = os ? a.soort : [a.soort, a.plaats].filter(Boolean).join(' · ');
+  return '<div class="item' + (a.afgerond ? ' klaar' : '') + (os ? ' os' : '') + '" data-id="' + esc(a.id) + '" title="Open de klantkaart">' +
+    '<span class="tijd">' + esc(a.afgerond && !os ? '✓ ' + (a.tijd || '') : links) + '</span>' +
+    '<span class="wie"><b>' + esc(a.naam) + '</b><small>' + esc(onder) + '</small></span></div>';
+}
+
+function teken() {
+  if (!data) return;
+  document.getElementById('datumRegel').textContent = mooieDatum(data.datum, true);
+  var open = data.vandaag.filter(function (a) { return !a.afgerond; }).length;
+  var h = '';
+  h += '<div class="sectie"><div class="sectie-kop"><span>Vandaag</span><span>' + (data.vandaag.length ? open + ' te gaan' + (data.vandaag.length > open ? ', ' + (data.vandaag.length - open) + ' klaar' : '') : '') + '</span></div>';
+  h += data.vandaag.length ? data.vandaag.map(function (a) { return itemHtml(a); }).join('') : '<div class="leeg">Geen afspraken vandaag.</div>';
+  h += '</div><div class="sectie"><div class="sectie-kop"><span>Morgen, ' + esc(mooieDatum(data.morgenDatum, true)) + '</span><span>' + (data.morgen.length || '') + '</span></div>';
+  h += data.morgen.length ? data.morgen.map(function (a) { return itemHtml(a); }).join('') : '<div class="leeg">Geen afspraken.</div>';
+  h += '</div>';
+  if (data.osTotaal) {
+    h += '<div class="sectie"><button class="sectie-kop" id="osKop"><span>Nog in OS Optiek (' + data.osTotaal + ') ' + (osOpen ? '▾' : '▸') + '</span></button>';
+    if (osOpen) h += data.os.map(function (a) { return itemHtml(a, true); }).join('') + (data.osTotaal > data.os.length ? '<div class="leeg">en nog ' + (data.osTotaal - data.os.length) + ' oudere</div>' : '');
+    h += '</div>';
+  }
+  document.getElementById('inhoud').innerHTML = h;
+  document.getElementById('voet').textContent = 'Bijgewerkt om ' + new Date().toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' });
+}
+
+function laad() {
+  if (!token()) { toonInloggen(); return; }
+  laatsteDag = vandaagIso();
+  fetch(basis() + 'overzicht?datum=' + laatsteDag, { headers: { Authorization: 'Bearer ' + token() }, cache: 'no-store' })
+    .then(function (r) {
+      if (r.status === 401) { zetToken(''); toonInloggen('Dit token klopt niet.'); throw new Error('401'); }
+      if (r.status === 429) throw new Error('Te veel foute pogingen, probeer het later opnieuw.');
+      if (!r.ok) throw new Error('Server gaf fout ' + r.status);
+      return r.json();
+    })
+    .then(function (j) { data = j; teken(); })
+    .catch(function (e) { if (e.message !== '401') document.getElementById('voet').textContent = 'Niet bijgewerkt: ' + (e.message === 'Failed to fetch' ? 'server niet bereikbaar' : e.message); });
+}
+
+// Live-meldingen via Server-Sent Events. Met fetch in plaats van EventSource, zodat het token in een header kan.
+var laadTimer = null;
+function verbind() {
+  if (stroom || !token()) return;
+  var ctrl = new AbortController(); stroom = ctrl;
+  fetch(basis() + 'stream', { headers: { Authorization: 'Bearer ' + token() }, signal: ctrl.signal, cache: 'no-store' })
+    .then(function (r) {
+      if (!r.ok || !r.body) throw new Error(String(r.status));
+      stip('aan'); wachttijd = 2000;
+      var lezer = r.body.getReader(), dec = new TextDecoder(), buf = '';
+      function lees() {
+        return lezer.read().then(function (x) {
+          if (x.done) throw new Error('gesloten');
+          buf += dec.decode(x.value, { stream: true });
+          var blokken = buf.split('\n\n'); buf = blokken.pop();
+          blokken.forEach(function (b) { if (/^event: wijziging/m.test(b)) { clearTimeout(laadTimer); laadTimer = setTimeout(laad, 300); } });
+          return lees();
+        });
+      }
+      return lees();
+    })
+    .catch(function () {})
+    .then(function () {
+      if (stroom !== ctrl) return;
+      stroom = null; stip('weg');
+      setTimeout(verbind, wachttijd); wachttijd = Math.min(wachttijd * 2, 60000);
+    });
+}
+
+document.addEventListener('click', function (e) {
+  var item = e.target.closest('.item');
+  if (item && data) { window.open(data.app.replace(/#.*$/, '') + '#kaart=' + encodeURIComponent(item.dataset.id), '_blank'); return; }
+  if (e.target.closest('#osKop')) { osOpen = !osOpen; teken(); return; }
+  if (e.target.id === 'ververs') { laad(); if (!stroom) verbind(); return; }
+  if (e.target.id === 'verberg') { if (window.widget) window.widget.hide(); return; }
+  if (e.target.id === 'uitlog') { if (stroom) { stroom.abort(); stroom = null; } zetToken(''); data = null; stip(''); toonInloggen(); }
+});
+// Na middernacht naar de nieuwe dag, en voor de zekerheid elke 5 minuten bijwerken
+setInterval(function () { if (token() && (vandaagIso() !== laatsteDag || Date.now() % 300000 < 30000)) laad(); }, 30000);
+document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'visible' && token()) laad(); });
+
+laad(); verbind();
+</script>
+</body>
+</html>

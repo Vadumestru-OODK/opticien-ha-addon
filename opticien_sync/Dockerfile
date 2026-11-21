@@ -7,7 +7,7 @@ RUN apk add --no-cache tzdata
 ENV TZ=Europe/Amsterdam
 
 WORKDIR /app
-COPY sync-server.js run.sh /app/
+COPY sync-server.js widget.html run.sh /app/
 RUN chmod +x /app/run.sh && sed -i 's/\r$//' /app/run.sh && node --version
 
 CMD [ "/app/run.sh" ]

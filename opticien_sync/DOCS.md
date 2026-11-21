@@ -33,6 +33,12 @@ Hernoem of verplaats de mappen niet zelf; dat doet de add-on.
   die nog niet bij een klant zijn gezet, toont de klantkaart bij het openen van een kaart.
   Niet opgehaalde foto's worden na 24 uur gewist. De postbus staat in
   `share\opticien\postbus`.
+- **Widget-token (bureaubladwidget)**: alleen nodig voor het widget op je pc
+  (afspraken van vandaag en morgen, en wat nog in OS Optiek moet). Vul een ander lang,
+  willekeurig token in (minstens 16 tekens) en gebruik hetzelfde token in het widget.
+  Met dit token kun je alleen dat overzicht lezen: namen, tijden, soort afspraak en plaats.
+  Geen telefoonnummers, adressen of metingen, en wijzigen kan niet. De widgetpagina staat
+  op het adres van deze server met `/widget` erachter.
 - **Mistral API-sleutel** en **Mistral-model**: alleen nodig voor de knop
   "Uitwerken met Mistral" op de klantkaart (brief aan de arts en verslag voor
   het dossier). De sleutel blijft op deze server; de klantkaart stuurt geen

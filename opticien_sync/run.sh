@@ -16,6 +16,8 @@ SYNC_TOKEN="$(node -e "try { process.stdout.write(String(require('$OPTIES').toke
 export SYNC_TOKEN
 POSTBUS_TOKEN="$(node -e "try { process.stdout.write(String(require('$OPTIES').postbus_token || '')) } catch (e) {}")"
 export POSTBUS_TOKEN
+WIDGET_TOKEN="$(node -e "try { process.stdout.write(String(require('$OPTIES').widget_token || '')) } catch (e) {}")"
+export WIDGET_TOKEN
 MISTRAL_KEY="$(node -e "try { process.stdout.write(String(require('$OPTIES').mistral_key || '')) } catch (e) {}")"
 export MISTRAL_KEY
 MISTRAL_MODEL="$(node -e "try { process.stdout.write(String(require('$OPTIES').mistral_model || '')) } catch (e) {}")"

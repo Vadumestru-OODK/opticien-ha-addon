@@ -55,8 +55,15 @@ const MAX_JSON_BYTES = 20 * 1024 * 1024;
 const MAX_MEDIA_BYTES = 15 * 1024 * 1024;
 // Postbus: de telefoon (PD-meting) mag hier met een eigen, beperkt token alleen een foto in leggen.
 // Ophalen en weggooien kan alleen met het gewone token. Niet opgehaald: na 24 uur weg.
+// Bureaubladwidget: eigen, beperkt token. Daarmee kun je alleen het overzicht van vandaag, morgen
+// en "nog in OS Optiek" lezen (naam, tijd, soort, plaats), niets wijzigen en geen kaarten ophalen.
+const WIDGET_TOKEN = (process.env.WIDGET_TOKEN || '').trim();
+const WIDGET_APP_URL = (process.env.WIDGET_APP_URL || 'https://form.oodk.nl/').trim();
+const WIDGET_HTML_PAD = path.join(__dirname, 'widget.html');
+const WIDGET_MAX_VERBINDINGEN = 10;
 const POSTBUS_TOKEN = (process.env.POSTBUS_TOKEN || '').trim();
 const POSTBUS_AAN = POSTBUS_TOKEN.length >= 16 && POSTBUS_TOKEN !== TOKEN;
+const WIDGET_AAN = WIDGET_TOKEN.length >= 16 && WIDGET_TOKEN !== TOKEN && WIDGET_TOKEN !== POSTBUS_TOKEN;
 const POSTBUS_DIR = path.join(DATA_DIR_BASE, 'postbus');
 const POSTBUS_MAX_BYTES = 5 * 1024 * 1024;
 const POSTBUS_MAX_AANTAL = 50;
@@ -190,8 +197,75 @@ function verwerkKaarten(lijst) {
     for (const [id, k, vorige] of teRegelen) {
         try { regelMediaVanKaart(id, k, vorige); } catch (e) { console.error('Mappen regelen mislukt:', e.message); }
     }
+    if (teRegelen.length) widgetMeldWijziging();
     return { seq: q.maxSeq.get().s, geaccepteerd, afgewezen };
 }
+
+// --- Bureaubladwidget: overzicht en live-meldingen ---
+
+function plusDagen(iso, n) {
+    const d = new Date(iso + 'T12:00:00Z');
+    d.setUTCDate(d.getUTCDate() + n);
+    return d.toISOString().slice(0, 10);
+}
+function vandaagLokaal() {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+// Dezelfde afspraken als in de app (hoofdafspraak, extra afspraken, reparaties), maar alleen wat de widget nodig heeft
+function widgetAfspraken(d) {
+    const uit = [];
+    const plaats = String((d.andere_locatie ? d.verblijf_plaats : d.plaats) || '').trim();
+    const n = parseInt(d._aCount, 10) || 1;
+    for (let i = 1; i <= n; i++) {
+        const v = i === 1 ? { datum: 'afspraak_datum', tijd: 'afspraak_tijd', soort: 'soort_afspraak', afgerond: 'afgerond', geannuleerd: 'geannuleerd' }
+            : { datum: `afs${i}_datum`, tijd: `afs${i}_tijd`, soort: `afs${i}_soort`, afgerond: `afs${i}_afgerond`, geannuleerd: `afs${i}_geannuleerd` };
+        if (!d[v.datum]) continue;
+        uit.push({ datum: d[v.datum], tijd: d[v.tijd] || '', soort: d[v.soort] || 'Afspraak', plaats, afgerond: !!d[v.afgerond], geannuleerd: !!d[v.geannuleerd] });
+    }
+    const r = parseInt(d._repCount, 10) || 0;
+    for (let i = 1; i <= r; i++) {
+        if (!d[`rep${i}_klaar`]) continue;
+        const ophalen = d[`rep${i}_wijze`] === 'Ophalen';
+        uit.push({ datum: d[`rep${i}_klaar`], tijd: d[`rep${i}_tijd`] || '', soort: ophalen ? 'Reparatie ophalen' : 'Reparatie afleveren',
+                   plaats: ophalen ? '' : String(d.plaats || '').trim(), afgerond: !!d[`rep${i}_afgerond`], geannuleerd: false, ophalen });
+    }
+    return uit;
+}
+function widgetOverzicht(datum) {
+    const vandaag = /^\d{4}-\d{2}-\d{2}$/.test(datum || '') ? datum : vandaagLokaal();
+    const morgen = plusDagen(vandaag, 1), grens = plusDagen(vandaag, -60);
+    const lijst = { vandaag: [], morgen: [], os: [] };
+    for (const rij of q.alleKaarten.all()) {
+        if (rij.verwijderd) continue;
+        let k; try { k = JSON.parse(rij.data); } catch (e) { continue; }
+        const d = k.data || {};
+        const naam = String(k.klant || `${d.voornaam || ''} ${d.naam || ''}`).trim() || 'Onbekende klant';
+        const afspraken = widgetAfspraken(d).filter(a => !a.geannuleerd);
+        for (const a of afspraken) {
+            const item = { id: rij.id, naam, tijd: a.tijd, soort: a.soort, plaats: a.plaats, afgerond: a.afgerond };
+            if (a.datum === vandaag) lijst.vandaag.push(item);
+            else if (a.datum === morgen) lijst.morgen.push(item);
+        }
+        // Nog in OS Optiek: afspraak voorbij of afgerond, de laatste 60 dagen, en nog niet als verwerkt gemarkeerd
+        if (!d.os_verwerkt) {
+            const klaar = afspraken.filter(a => (a.afgerond || a.datum < vandaag) && a.datum >= grens && a.datum <= vandaag)
+                .sort((x, y) => y.datum.localeCompare(x.datum));
+            if (klaar.length) lijst.os.push({ id: rij.id, naam, datum: klaar[0].datum, soort: klaar[0].soort });
+        }
+    }
+    const opTijd = (a, b) => (a.tijd || '99:99').localeCompare(b.tijd || '99:99') || a.naam.localeCompare(b.naam);
+    lijst.vandaag.sort(opTijd); lijst.morgen.sort(opTijd);
+    lijst.os.sort((a, b) => b.datum.localeCompare(a.datum));
+    return { datum: vandaag, morgenDatum: morgen, app: WIDGET_APP_URL, seq: q.maxSeq.get().s, ...lijst, os: lijst.os.slice(0, 40), osTotaal: lijst.os.length };
+}
+
+const widgetVerbindingen = new Set();
+function widgetMeldWijziging() {
+    const seq = q.maxSeq.get().s;
+    for (const res of widgetVerbindingen) { try { res.write(`event: wijziging\ndata: ${seq}\n\n`); } catch (e) {} }
+}
+setInterval(() => { for (const res of widgetVerbindingen) { try { res.write(': nog hier\n\n'); } catch (e) {} } }, 25000).unref();
 
 // --- Herkenbare map- en bestandsnamen ---
 
@@ -717,6 +791,34 @@ const server = http.createServer(async (req, res) => {
         }
         return;
     }
+    // Bureaubladwidget: de pagina zelf is openbaar (bevat geen gegevens), de gegevens vragen een token
+    const pad = req.url.split('?')[0];
+    if (req.method === 'GET' && (pad === '/widget' || pad === '/widget/')) {
+        try {
+            const html = fs.readFileSync(WIDGET_HTML_PAD);
+            res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Content-Length': html.length, 'Cache-Control': 'no-cache',
+                'Content-Security-Policy': "default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'self' data:; connect-src 'self'" });
+            res.end(html);
+        } catch (e) { send(res, 404, { error: 'widget.html ontbreekt naast de server' }); }
+        return;
+    }
+    if (req.method === 'GET' && (pad === '/widget/overzicht' || pad === '/widget/stream')) {
+        const gewoon = checkAuth(req);
+        if (!gewoon && !(WIDGET_AAN && tokenGelijk(req, WIDGET_TOKEN))) { registreerFout(adres); send(res, 401, { error: 'Unauthorized: token klopt niet' }); return; }
+        if (gewoon) pogingen.delete(adres);
+        if (pad === '/widget/overzicht') {
+            try { send(res, 200, widgetOverzicht(new URL(req.url, 'http://x').searchParams.get('datum'))); }
+            catch (e) { send(res, 500, { error: 'Serverfout: ' + e.message }); }
+            return;
+        }
+        if (widgetVerbindingen.size >= WIDGET_MAX_VERBINDINGEN) { send(res, 503, { error: 'Te veel widgets verbonden' }); return; }
+        res.writeHead(200, { ...CORS, 'Content-Type': 'text/event-stream; charset=utf-8', 'Cache-Control': 'no-cache, no-transform',
+            'Connection': 'keep-alive', 'X-Accel-Buffering': 'no' });
+        res.write(`retry: 5000\nevent: wijziging\ndata: ${q.maxSeq.get().s}\n\n`);
+        widgetVerbindingen.add(res);
+        req.on('close', () => widgetVerbindingen.delete(res));
+        return;
+    }
     if (!checkAuth(req)) {
         registreerFout(adres);
         send(res, 401, { error: 'Unauthorized: token klopt niet' });
@@ -730,7 +832,7 @@ const server = http.createServer(async (req, res) => {
     try {
         // Status: om te testen of de server bereikbaar is
         if (req.method === 'GET' && p === '/status') {
-            send(res, 200, { ok: true, versie: 2, postbus: POSTBUS_AAN, ai: !!MISTRAL_KEY, ...q.tellingen.get(), seq: q.maxSeq.get().s });
+            send(res, 200, { ok: true, versie: 2, postbus: POSTBUS_AAN, widget: WIDGET_AAN, ai: !!MISTRAL_KEY, ...q.tellingen.get(), seq: q.maxSeq.get().s });
             return;
         }
 
@@ -942,6 +1044,8 @@ server.listen(PORT, '0.0.0.0', () => {
     if (POSTBUS_AAN) console.log('Postbus voor foto\'s van de PD-meting staat aan.');
     else if (POSTBUS_TOKEN) console.warn('Postbus staat uit: het postbus-token moet minstens 16 tekens zijn en mag niet gelijk zijn aan het gewone token.');
     if (MISTRAL_KEY) console.log(`Uitwerken met Mistral staat aan (${MISTRAL_MODEL}).`);
+    if (WIDGET_AAN) console.log('Bureaubladwidget staat aan (adres: /widget).');
+    else if (WIDGET_TOKEN) console.warn('Widget staat uit: het widget-token moet minstens 16 tekens zijn en anders dan het gewone token en het postbus-token.');
     if (TOKEN === 'VERANDER_DIT_TOKEN') {
         console.warn('⚠️  Let op: je gebruikt nog het standaard-token! Zet bij TOKEN hetzelfde token als in je oude server.');
     }
